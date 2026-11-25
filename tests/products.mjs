@@ -34,6 +34,7 @@ async function desktopPage(service) {
     args: [...(packagedLauncher ? [] : [desktop]), '--ozone-platform=x11'],
     chromiumSandbox: process.env.GESTALTER_TEST_SANDBOX !== '0',
     env: { ...process.env, OLYMP_ORIGIN: service,
+      ...(packagedLauncher && { GESTALTER_PYTHON: '/unused-in-the-package' }),
       XDG_DATA_HOME: join(temp, 'data'), XDG_CONFIG_HOME: join(temp, 'config') },
     timeout: 20000,
   });
