@@ -1,5 +1,6 @@
 // Second implementation of the v1 replication protocol. Shares only sign-in
 // with the SDK. Stores its own manifest and raw ciphertext in SQLite.
+import { isDeepStrictEqual } from "node:util";
 import sodium from "../web/sodium/libsodium-wrappers.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -190,7 +191,7 @@ export class Peer {
       if (absent.includes(id))
         await this.http("chunks/" + id, "PUT", Buffer.from(wire));
     }
-    if (absent.length || JSON.stringify(base) !== JSON.stringify(remote)) {
+    if (absent.length || !isDeepStrictEqual(base, remote)) {
       const wire = await this.encrypt(
         ["manifest", rev + 1],
         Buffer.from(JSON.stringify(base)),

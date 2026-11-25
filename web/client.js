@@ -1,4 +1,4 @@
-// Olymp v1.0.0 — shared browser / native JS binding.
+// Olymp v1.1.0 — shared browser / native JS binding.
 import sodium from "./sodium/libsodium-wrappers.mjs";
 import init, { PasswordExchange } from "./opaque/opaque.js";
 
@@ -317,6 +317,12 @@ export function entries(heads) {
   });
 }
 
+export function recordKey({ kind, id }) {
+  if (typeof kind !== "string" || !kind || typeof id !== "string" || !id)
+    throw Error("Expected a typed record identity");
+  return "gestalt/" + JSON.stringify([kind, id]);
+}
+
 export class Replica {
   #session;
   #store;
@@ -357,8 +363,11 @@ export class Replica {
   }
   async syncStatus() {
     const state = await this.#state();
-    if (this.status.startsWith("Fully synced") && state.pending)
-      return "Pending";
+    if (this.status.startsWith("Fully synced")) {
+      if (state.pending) return "Pending";
+      if (this.status !== "Fully synced at revision " + state.revision)
+        return "Awaiting confirmation";
+    }
     return this.status;
   }
   async records() {
@@ -372,49 +381,66 @@ export class Replica {
     attachments = [],
     { observed, deleted = false, files: existing = [] } = {},
   ) {
-    if (typeof key !== "string" || !key) throw Error("Missing record key");
-    const payload = JSON.parse(JSON.stringify(value));
-    const id = crypto.randomUUID();
-    await this.#store.lock(async () => {
+    const [id] = await this.writeBatch(() => [
+      { key, value, attachments, observed, deleted, files: existing },
+    ]);
+    return id;
+  }
+
+  // Prepare against the locked local snapshot. All operations become visible
+  // in one durable manifest save. Interrupted staging leaves only orphan bytes.
+  async writeBatch(prepare) {
+    const ids = await this.#store.lock(async () => {
       this.#abort.signal.throwIfAborted();
       const state = await this.#state();
       if (state.owner) throw Error("Local work has already been adopted");
-      const files = existing.map((ids) => [...ids]);
-      for (const ref of new Set(files.flat())) await this.#readChunk(ref);
-      for (const file of attachments) {
-        if (!(file instanceof Uint8Array))
-          throw Error("Expected attachment bytes");
-        const ids = [];
-        for (let i = 0; i < file.length; i += CHUNK) {
-          const chunk = await encryptContent(
-            this.#session.key,
-            file.subarray(i, i + CHUNK),
-            this.#context("chunk"),
-          );
-          const ref = await digest(chunk);
-          await this.#store.saveChunk(ref, chunk);
-          ids.push(ref);
+      const changes = await prepare(entries(state.base.heads));
+      const ids = [];
+      for (const change of changes) {
+        const { key, value, attachments = [], observed, deleted = false, files: existing = [] } = change;
+        if (typeof key !== "string" || !key) throw Error("Missing record key");
+        const payload = JSON.parse(JSON.stringify(value));
+        const id = crypto.randomUUID();
+        const files = existing.map((ids) => [...ids]);
+        for (const ref of new Set(files.flat())) await this.#readChunk(ref);
+        for (const file of attachments) {
+          if (!(file instanceof Uint8Array))
+            throw Error("Expected attachment bytes");
+          const ids = [];
+          for (let i = 0; i < file.length; i += CHUNK) {
+            const chunk = await encryptContent(
+              this.#session.key,
+              file.subarray(i, i + CHUNK),
+              this.#context("chunk"),
+            );
+            const ref = await digest(chunk);
+            await this.#store.saveChunk(ref, chunk);
+            ids.push(ref);
+          }
+          files.push(ids);
         }
-        files.push(ids);
+        const parents = state.base.heads.filter(
+          (h) => h.key === key && (!observed || observed.includes(h.id)),
+        );
+        const superseded = parents.map((h) => h.id);
+        const head = {
+          key,
+          id,
+          value: payload,
+          files,
+          deleted,
+          ...editInfo(parents, payload, files),
+        };
+        state.base = merge(state.base, { heads: [head], removed: superseded });
+        ids.push(id);
       }
-      const parents = state.base.heads.filter(
-        (h) => h.key === key && (!observed || observed.includes(h.id)),
-      );
-      const superseded = parents.map((h) => h.id);
-      const head = {
-        key,
-        id,
-        value: payload,
-        files,
-        deleted,
-        ...editInfo(parents, payload, files),
-      };
-      state.base = merge(state.base, { heads: [head], removed: superseded });
+      if (!ids.length) return ids;
       await this.#store.save({ ...state, pending: true });
       this.status = "Pending";
+      return ids;
     });
-    if (this.#timer) this.sync().catch(() => {});
-    return id;
+    if (ids.length && this.#timer) this.sync().catch(() => {});
+    return ids;
   }
   remove(key, observed) {
     return this.put(key, null, [], { observed, deleted: true });
@@ -499,7 +525,7 @@ export class Replica {
       if (missing.has(id))
         await this.#call("chunks/" + id, { method: "PUT", binary: data });
     }
-    if (missing.size || JSON.stringify(combined) !== JSON.stringify(remote)) {
+    if (missing.size || !same(combined, remote)) {
       const sealed = await encryptContent(
         this.#session.key,
         utf8.encode(JSON.stringify(combined)),

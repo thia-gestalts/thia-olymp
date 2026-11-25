@@ -1,6 +1,6 @@
 {
   "name": "@thia/olymp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Olymp v1 account and whole-base sync client",
   "files": [
@@ -8,7 +8,7 @@
     "web/browser.js",
     "web/opaque",
     "web/sodium",
-    "protocol/1.0.0.md"
+    "protocol/1.1.0.md"
   ],
   "exports": {
     ".": "./web/client.js",

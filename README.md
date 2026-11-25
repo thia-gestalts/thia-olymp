@@ -1,4 +1,4 @@
-# Olymp 1.0.0
+# Olymp 1.1.0
 
 Olymp gives each signed-in device a complete local replica of a learner's base. The service stores OPAQUE credentials, device sessions, encrypted manifests and encrypted attachment chunks in SQLite. The embedded account page lets a learner register with a login name and password, sign in, see each session's last confirmed revision and sign out.
 
@@ -20,12 +20,14 @@ For deployment, `cargo build --locked --release --bin olymp` produces a standalo
 
 ## Integrate a client
 
-Pin the [1.0.0 protocol](protocol/1.0.0.md) or install the vendored npm archive into a consumer repo and commit its package lock. The archive contains the ES modules, OPAQUE WASM and sodium runtime. No registry publication or product repository is required.
+Pin the [1.1.0 protocol](protocol/1.1.0.md) or install the vendored npm archive into a consumer repo and commit its package lock. The archive contains the ES modules, OPAQUE WASM and sodium runtime. No registry publication or product repository is required.
 
 ```sh
 # From an adjacent consumer repository, verify the pin, then install it.
 (cd ../thia-olymp && sha256sum -c release/SHA256SUMS)
-npm install --save-exact ../thia-olymp/release/thia-olymp-1.0.0.tgz
+mkdir -p vendor
+cp ../thia-olymp/release/thia-olymp-1.1.0.tgz vendor/
+npm install --save-exact ./vendor/thia-olymp-1.1.0.tgz
 ```
 
 Use a current browser with WebCrypto, WebAssembly, IndexedDB, Web Locks and the Uint8Array base64/hex methods. Serve the WASM beside its generated JS, or pass WASM bytes via the optional `wasm` sign-in field. A browser example:
@@ -51,6 +53,8 @@ const status = await replica.syncStatus();
 `put` replaces the entire record and its attachment list; `files` reuses existing references and new byte arrays append files. `remove(key, observedIds)` creates a replicated deletion. Groups with multiple versions require resolution by the caller. Preserve concurrent delete/edit alternatives. On app launch, read `remembered.read()`, open that session's scoped store and call `start()`. It syncs immediately, after commits, on the browser's online event and every five seconds while running. Poll `syncStatus()` for display. `sync()` explicitly waits for a completed round or rejects with the failure. On sign-out, revoke with `request(session.origin,"logout",{method:"POST",session})`, call `replica.close()`, clear `remembered.clear(session)` and release references to the unlocked session. A 401 also permits local session removal. Use the session-change notification to close stale views in other tabs. Store the active session only when persistence is desired.
 
 For signed-out local work, allocate a fresh profile with `createLocal()`, persist its random ID in the app's active profile selection, and use a Replica with that session and browserStore without starting network sync. Reopen with `resumeLocal(id)`. When the learner chooses to include that profile on sign-in, close the editor and call `adoptLocal({session: local, store: browserStore(local)}, session, browserStore(session))`. It binds the source to one account, re-encrypts its attachments and preserves operation IDs. If interrupted, use `resumeLocal(id, session)` and retry the adoption. Forget the active guest ID after success. Create a fresh guest for subsequent signed-out use. An account switch always opens the selected account's separate replica.
+
+Use the exported `recordKey(record)` for thia-gestalts records. Pass an ordered list of note image bytes matching the attachment references. Use `writeBatch(prepare)` to commit related records together. See the application mapping in the protocol.
 
 Native clients may implement the wire protocol directly. A custom JS store supplies `scope = JSON.stringify([origin, accountId])`, `lock(asyncFunction)`, `state()/save(state)` and `chunk(id)/saveChunk(id,bytes)`. Use an exclusive lock across all writers and synchronizers of that scope. A missing value returns undefined. Manifest replacement must be atomic, and writes must be durable when resolved. Store encrypted bytes unchanged. Allocate protected app-local storage for the manifest, which contains decrypted records. The browser binding stores the non-extractable local HKDF key and session in IndexedDB. A client with missing or evicted storage must download and verify its replica again.
 

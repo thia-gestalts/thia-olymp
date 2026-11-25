@@ -131,6 +131,11 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
   };
   const guestStore = await disk(join(dir, "desktop"), guest);
   const guestReplica = new Replica(guest, guestStore);
+  await assert.rejects(guestReplica.writeBatch(() => [
+    { key: "skill", value: { kind: "skill" } },
+    { key: "event", value: {}, attachments: ["invalid attachment"] },
+  ]), /Expected attachment bytes/);
+  assert.deepEqual(await guestReplica.records(), []);
   await guestReplica.put("local-note", "signed-out work", [
     Buffer.from("guest image"),
   ]);
@@ -312,7 +317,9 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
     return request(o, p, opts);
   });
   await measured.put("event:lesson-8", { kind: "browser.practice", score: 1 });
+  assert.equal(await desktop.syncStatus(), "Pending");
   await measured.sync();
+  assert.equal(await desktop.syncStatus(), "Awaiting confirmation");
   assert.equal(transferred, 0);
   await phone.sync();
   const measuredHeads = await measured.records();
