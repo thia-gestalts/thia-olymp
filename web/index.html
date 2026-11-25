@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>Olymp account</title>
+  <style>
+    :root {
+      font: 17px/1.5 system-ui;
+      color: #183b35;
+      background: #f4f4ed;
+    }
+    main {
+      max-width: 30rem;
+      margin: 9vh auto;
+      padding: 2rem;
+    }
+    h1 {
+      font:
+        3rem Georgia,
+        serif;
+      margin: 0.2em 0;
+    }
+    label,
+    input {
+      display: block;
+    }
+    label {
+      margin: 1rem 0;
+    }
+    input,
+    button {
+      font: inherit;
+      border: 1px solid #637770;
+      border-radius: 0.3rem;
+      padding: 0.55rem 0.8rem;
+    }
+    input {
+      box-sizing: border-box;
+      width: 100%;
+    }
+    button {
+      cursor: pointer;
+      background: white;
+      color: inherit;
+    }
+    button:first-of-type {
+      background: #185647;
+      color: white;
+    }
+    li {
+      padding: 0.55rem 0;
+      border-bottom: 1px solid #bfcbc4;
+    }
+    small {
+      display: block;
+    }
+  </style>
+  <main>
+    <h1>Olymp</h1>
+    <form id="entry">
+      <label
+        >Login name<input
+          name="name"
+          required
+          maxlength="64"
+          pattern="[A-Za-z0-9_.\-]+"
+          autocomplete="username"
+          autocapitalize="none" /></label
+      ><label
+        >Password<input
+          name="password"
+          type="password"
+          required
+          autocomplete="current-password" /></label
+      ><button>Sign in</button> <button value="signup">Create account</button>
+    </form>
+    <section id="dashboard" hidden>
+      <h2 id="learner"></h2>
+      <p id="status" aria-live="polite"></p>
+      <h3>Connected apps and devices</h3>
+      <ul id="devices"></ul>
+      <button id="logout">Sign out</button>
+    </section>
+    <p id="notice" role="alert"></p>
+  </main>
+  <script type="module" src="/ui.js"></script>
+</html>

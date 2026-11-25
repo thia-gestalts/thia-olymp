@@ -1,0 +1,21 @@
+{
+  "name": "@thia/olymp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Olymp v1 account and whole-base sync client",
+  "files": [
+    "web/client.js",
+    "web/browser.js",
+    "web/opaque",
+    "web/sodium",
+    "protocol/1.0.0.md"
+  ],
+  "exports": {
+    ".": "./web/client.js",
+    "./browser": "./web/browser.js",
+    "./opaque.wasm": "./web/opaque/opaque_bg.wasm"
+  },
+  "scripts": {
+    "test": "cargo build --locked && node tests/integration.test.js"
+  }
+}

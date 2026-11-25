@@ -1,0 +1,6 @@
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,name TEXT UNIQUE NOT NULL,opaque_record BLOB NOT NULL,wrapped_key TEXT NOT NULL,credential_generation INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,account TEXT NOT NULL REFERENCES accounts,expires INTEGER NOT NULL,device TEXT NOT NULL,confirmed INTEGER);
+CREATE TABLE IF NOT EXISTS bases(account TEXT PRIMARY KEY REFERENCES accounts,revision INTEGER NOT NULL,envelope TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chunks(account TEXT REFERENCES accounts,id TEXT,bytes BLOB NOT NULL, staged INTEGER, PRIMARY KEY(account,id));
