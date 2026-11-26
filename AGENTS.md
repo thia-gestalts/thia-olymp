@@ -1,0 +1,1 @@
+The minimal application allowing users to sync their thia data between apps and devices.

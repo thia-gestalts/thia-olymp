@@ -18,6 +18,8 @@ OLYMP_DATA=./learner-data OLYMP_LISTEN=127.0.0.1:9797 cargo run --locked --bin o
 
 For deployment, `cargo build --locked --release --bin olymp` produces a standalone executable with embedded browser assets. Run a single service against a private persistent data directory. Terminate HTTPS at a reverse proxy. Back up the SQLite database using a consistent SQLite backup and preserve the matching `opaque-setup-v1` file. For a browser app on another origin, proxy its `/v1/` path to the service with the path preserved. For example, Vite's `server.proxy` can map `"/v1"` to `"http://127.0.0.1:8787"`.
 
+On a dedicated Ubuntu 24.04 VPS, run `sudo bash deploy/ubuntu.sh gestalter.koljasam.com` from the checkout. The script builds Olymp, installs its systemd unit, and replaces `/etc/caddy/Caddyfile` with a single-site configuration. Service data lives in `/var/lib/olymp`. Rerun the script from an updated checkout to deploy a new build. Point the domain's A record at the VPS and allow inbound TCP ports 80 and 443 so Caddy can provision HTTPS.
+
 ## Integrate a client
 
 Pin the [1.1.0 protocol](protocol/1.1.0.md) or install the vendored npm archive into a consumer repo and commit its package lock. The archive contains the ES modules, OPAQUE WASM and sodium runtime. No registry publication or product repository is required.
