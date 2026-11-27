@@ -13,7 +13,7 @@ const server = spawn(
   "sh",
   ["-c", "exec target/debug/olymp --connected-stdin <&3"],
   {
-    env: { ...process.env, OLYMP_DATA: data },
+    env: { ...process.env, OLYMP_DATA: data, OLYMP_SIGNUP: "open" },
     stdio: ["ignore", "pipe", "pipe", "pipe"],
   },
 );

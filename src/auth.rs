@@ -17,7 +17,6 @@ use crate::Account;
 use crate::{ApiError, ApiResult, AppState, now, random_token};
 
 const SESSION_DAYS: i64 = 30;
-const LOCKOUT: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) fn token_hash(token: &str) -> String {
     Sha256::digest(token.as_bytes())
@@ -59,24 +58,6 @@ pub(crate) fn same_origin(headers: &HeaderMap) -> Result<(), ApiError> {
     ) {
         return Err(ApiError::Forbidden);
     }
-    Ok(())
-}
-
-fn limit_attempts(state: &AppState, key: &str, maximum: u32) -> ApiResult<()> {
-    let mut attempts = state
-        .failures
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    attempts.retain(|_, (_, since)| since.elapsed() < LOCKOUT);
-    let entry = attempts
-        .entry(key.to_owned())
-        .or_insert((0, Instant::now()));
-    if entry.0 >= maximum {
-        return Err(ApiError::TooMany(
-            "Too many attempts. Try again in 15 minutes.".into(),
-        ));
-    }
-    entry.0 += 1;
     Ok(())
 }
 
@@ -160,9 +141,6 @@ impl OpaqueAuth {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         pending.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(120));
-        if pending.len() >= 1024 {
-            return Err(ApiError::TooMany("Try again shortly.".into()));
-        }
         let challenge = random_token(32);
         pending.insert(challenge.clone(), (Instant::now(), exchange));
         Ok(challenge)
@@ -249,7 +227,9 @@ async fn signup_start(
     Json(req): Json<Start>,
 ) -> ApiResult<Json<serde_json::Value>> {
     same_origin(&headers)?;
-    limit_attempts(&state, "signup", 120)?;
+    if !state.signup {
+        return Err(ApiError::SignupClosed);
+    }
     let name = normalize(&req.name)?;
     let message = registration(&state, &name, &req.message)?;
     let id = random_token(16);
@@ -324,9 +304,7 @@ async fn login_start(
     Json(req): Json<Start>,
 ) -> ApiResult<Json<serde_json::Value>> {
     same_origin(&headers)?;
-    limit_attempts(&state, "login", 600)?;
     let name = normalize(&req.name)?;
-    limit_attempts(&state, &format!("account:{name}"), 5)?;
     let found = credentials(&state, &name)?;
     let (login, message) = begin_login(&state, &name, &req.message, found.as_ref())?;
     let (id, generation) = found.map_or((None, 0), |(id, _, generation, _)| (Some(id), generation));
@@ -379,11 +357,6 @@ async fn login_finish(
         .db
         .session(&token_hash(&token), now())?
         .ok_or(ApiError::Unauthorized)?;
-    state
-        .failures
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&format!("account:{}", account.name));
     Ok(
         Json(serde_json::json!({"account":account,"token":token,"wrapped":wrapped}))
             .into_response(),

@@ -82,7 +82,7 @@ try {
     packagedLauncher = join(temp, 'install/usr/bin/gestalter');
   }
   const address = await server(resolve('target/debug/olymp'), [], {
-    OLYMP_DATA: join(temp, 'service'), OLYMP_LISTEN: '127.0.0.1:0',
+    OLYMP_DATA: join(temp, 'service'), OLYMP_LISTEN: '127.0.0.1:0', OLYMP_SIGNUP: 'open',
   }, /listening on (.*)/);
   const service = 'http://' + address;
   const site = await server(process.execPath, [join(vizint, 'scripts/serve.mjs')],

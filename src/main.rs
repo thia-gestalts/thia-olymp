@@ -11,22 +11,20 @@ use rand::RngCore;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use std::{
-    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug)]
 enum ApiError {
     Unauthorized,
     Forbidden,
+    SignupClosed,
     BadRequest(String),
     Conflict(String),
-    TooMany(String),
     Internal(String),
     Missing,
-    Quota,
 }
 type ApiResult<T> = Result<T, ApiError>;
 impl From<rusqlite::Error> for ApiError {
@@ -39,12 +37,11 @@ impl IntoResponse for ApiError {
         let (code, msg) = match self {
             Self::Unauthorized => (401, "Sign in again".into()),
             Self::Forbidden => (403, "Account mismatch".into()),
+            Self::SignupClosed => (403, "Signups are closed".into()),
             Self::BadRequest(s) => (400, s),
             Self::Conflict(s) => (409, s),
-            Self::TooMany(s) => (429, s),
             Self::Internal(s) => (500, s),
             Self::Missing => (404, "Missing chunk".into()),
-            Self::Quota => (413, "Storage limit reached".into()),
         };
         (
             StatusCode::from_u16(code).unwrap(),
@@ -85,7 +82,7 @@ impl Db {
 struct Service {
     db: Db,
     auth: auth::OpaqueAuth,
-    failures: Mutex<HashMap<String, (u32, Instant)>>,
+    signup: bool,
 }
 type AppState = Arc<Service>;
 fn now() -> i64 {
@@ -117,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(Service {
         db,
         auth,
-        failures: Mutex::default(),
+        signup: std::env::var("OLYMP_SIGNUP").as_deref() == Ok("open"),
     });
     let api = auth::routes()
         .merge(sync::routes())

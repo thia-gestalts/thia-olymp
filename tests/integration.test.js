@@ -22,6 +22,7 @@ import {
   Replica,
   adoptLocal,
   entries,
+  HttpError,
 } from "../web/client.js";
 import { Peer } from "./peer.js";
 
@@ -59,7 +60,12 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
     ["-c", "exec target/debug/olymp --connected-stdin <&3"],
     {
       stdio: ["ignore", "pipe", "pipe", "pipe"],
-      env: { ...process.env, OLYMP_LISTEN: "127.0.0.1:0", OLYMP_DATA: data },
+      env: {
+        ...process.env,
+        OLYMP_LISTEN: "127.0.0.1:0",
+        OLYMP_DATA: data,
+        OLYMP_SIGNUP: "open",
+      },
     },
   );
   t.after(async () => {
@@ -290,14 +296,16 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
     }),
     { status: 409 },
   );
-  await assert.rejects(
-    request(origin, "chunks/" + refs[0], {
-      method: "PUT",
-      session: a,
-      binary: Buffer.alloc(262144 + 41),
-    }),
-    { status: 413 },
-  );
+  // The service no longer caps chunk size or account storage.
+  const large = new Uint8Array(5 * 1024 * 1024).fill(7);
+  const largeId = Buffer.from(
+    await crypto.subtle.digest("SHA-256", large),
+  ).toString("hex");
+  await request(origin, "chunks/" + largeId, {
+    method: "PUT",
+    session: a,
+    binary: large,
+  });
   const cost = db
     .prepare("SELECT length(envelope) size FROM bases WHERE account=?")
     .get(a.account.id).size;
@@ -325,10 +333,7 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
   const measuredHeads = await measured.records();
   const quota = new Replica(a, store, async (o, p, opts) => {
     if (p === "base" && opts.method === "PUT")
-      return request(o, p, {
-        ...opts,
-        json: { ...opts.json, envelope: "x".repeat(4 * 1024 * 1024) },
-      });
+      throw new HttpError(413, "Payload too large");
     return request(o, p, opts);
   });
   await quota.put("quota-proof", "kept");

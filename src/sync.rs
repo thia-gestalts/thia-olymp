@@ -14,8 +14,6 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-const CHUNK: usize = 262144 + 40;
-const QUOTA: i64 = 256 * 1024 * 1024;
 fn scope(account: &Account, h: &HeaderMap) -> ApiResult<()> {
     if h.get("x-olymp-account").and_then(|v| v.to_str().ok()) == Some(&account.id) {
         Ok(())
@@ -107,9 +105,6 @@ async fn upload(
     bytes: Bytes,
 ) -> ApiResult<StatusCode> {
     scope(&a, &h)?;
-    if bytes.len() > CHUNK {
-        return Err(ApiError::Quota);
-    }
     if bytes.len() < 40 || format!("{:x}", Sha256::digest(&bytes)) != id {
         return Err(ApiError::BadRequest("Chunk digest mismatch".into()));
     }
@@ -124,14 +119,6 @@ async fn upload(
          staged=CASE WHEN staged IS NOT NULL THEN excluded.staged END",
         params![a.id, id, bytes.as_ref(), now()],
     )?;
-    let used: i64 = tx.query_row(
-        "SELECT sum(length(bytes)) FROM chunks WHERE account=?",
-        [a.id],
-        |r| r.get(0),
-    )?;
-    if used > QUOTA {
-        return Err(ApiError::Quota);
-    }
     tx.commit()?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -221,12 +208,10 @@ pub fn routes() -> Router<AppState> {
         .route("/base", get(read).put(write))
         .route(
             "/chunks/{id}",
-            get(download)
-                .put(upload)
-                .layer(DefaultBodyLimit::max(CHUNK)),
+            get(download).put(upload),
         )
         .route("/missing", post(missing))
         .route("/confirm", post(confirm))
         .route("/devices", get(devices))
-        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
+        .layer(DefaultBodyLimit::disable())
 }
