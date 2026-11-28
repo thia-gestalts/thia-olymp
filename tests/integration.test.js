@@ -342,6 +342,24 @@ test("Olymp v1 interoperation, durability and isolation", async (t) => {
   assert.equal((await store.state()).pending, true);
   await measured.sync();
   await phone.sync();
+  // A local write while a round waits on the service neither blocks nor gets lost.
+  let release;
+  const held = new Promise((r) => (release = r));
+  const slow = new Replica(a, store, async (o, p, opts) => {
+    if (p === "base" && !opts.method) await held;
+    return request(o, p, opts);
+  });
+  const round = slow.sync();
+  await new Promise((r) => setTimeout(r, 20));
+  await slow.put("during-sync", "written");
+  release();
+  await round;
+  assert.equal(slow.status, "Pending");
+  assert.equal((await store.state()).pending, true);
+  await slow.sync();
+  assert.equal((await store.state()).pending, false);
+  await phone.sync();
+  assert.ok(phone.state().heads.some((h) => h.key === "during-sync"));
   const inline = Buffer.byteLength(
     JSON.stringify({
       heads: measuredHeads,

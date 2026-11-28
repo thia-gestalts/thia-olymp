@@ -328,7 +328,11 @@ export class Replica {
   #store;
   #call;
   #timer;
+  #soonTimer;
   #run;
+  #again = false;
+  // Chunks already authenticated in this session. Content addressing keeps them valid.
+  #verified = new Set();
   #abort = new AbortController();
   status = "Offline";
   constructor(session, store, call = request) {
@@ -439,7 +443,7 @@ export class Replica {
       this.status = "Pending";
       return ids;
     });
-    if (ids.length && this.#timer) this.sync().catch(() => {});
+    if (ids.length && this.#timer) this.#soon();
     return ids;
   }
   remove(key, observed) {
@@ -458,43 +462,68 @@ export class Replica {
   close() {
     this.#abort.abort();
     clearInterval(this.#timer);
+    clearTimeout(this.#soonTimer);
     this.#timer = null;
     this.status = "Closed";
   }
+  // Coalesce bursts of local writes into one round.
+  #soon(delay = 300) {
+    clearTimeout(this.#soonTimer);
+    this.#soonTimer = setTimeout(() => this.sync().catch(() => {}), delay);
+  }
+  // Network transfers run outside the account lock so local writes never wait
+  // on the service. Only the snapshot and the final merge-and-save are locked.
   sync() {
-    if (!this.#run)
-      this.#run = this.#store
-        .lock(async () => {
-          this.#abort.signal.throwIfAborted();
-          this.status = "Syncing";
-          for (let i = 0; i < 5; i++) {
-            try {
-              return await this.#round();
-            } catch (e) {
-              if (e.status !== 409 || i === 4) throw e;
-            }
-          }
-        })
-        .catch((e) => {
-          this.status = this.#abort.signal.aborted
-            ? "Closed"
-            : e.status === 413 || e.name === "QuotaExceededError"
-              ? "Storage limit reached"
-              : e.status === 401
-                ? "Sign in again"
-                : e instanceof TypeError || e.name === "TimeoutError"
-                  ? "Connection unavailable"
-                  : "Sync incomplete";
-          throw e;
-        })
-        .finally(() => {
-          this.#run = null;
-        });
+    if (this.#run) {
+      this.#again = true;
+      return this.#run;
+    }
+    this.#run = (async () => {
+      this.#abort.signal.throwIfAborted();
+      this.status = "Syncing";
+      for (let i = 0; i < 5; i++) {
+        try {
+          return await this.#round();
+        } catch (e) {
+          if (e.status !== 409 || i === 4) throw e;
+        }
+      }
+    })()
+      .catch((e) => {
+        this.status = this.#abort.signal.aborted
+          ? "Closed"
+          : e.status === 413 || e.name === "QuotaExceededError"
+            ? "Storage limit reached"
+            : e.status === 401
+              ? "Sign in again"
+              : e instanceof TypeError || e.name === "TimeoutError"
+                ? "Connection unavailable"
+                : "Sync incomplete";
+        throw e;
+      })
+      .finally(() => {
+        this.#run = null;
+        if (this.#again && this.#timer) this.#soon(0);
+        this.#again = false;
+      });
     return this.#run;
+  }
+  async #chunk(id) {
+    if (this.#verified.has(id)) return;
+    let data = await this.#store.chunk(id);
+    if (!data || (await digest(data)) !== id) {
+      data = await this.#call("chunks/" + id);
+      if ((await digest(data)) !== id) throw Error("Invalid remote chunk");
+      await decryptContent(this.#session.key, data, this.#context("chunk"));
+      await this.#store.saveChunk(id, data);
+    } else {
+      await decryptContent(this.#session.key, data, this.#context("chunk"));
+    }
+    this.#verified.add(id);
   }
   async #round() {
     if (this.#session.origin === "local:") throw Error("Sign in to sync");
-    const { base } = await this.#state();
+    const { base } = await this.#store.lock(() => this.#state());
     let { revision, envelope } = await this.#call("base");
     const remote = envelope
       ? JSON.parse(
@@ -509,23 +538,15 @@ export class Replica {
       : empty();
     const combined = merge(base, remote);
     const chunks = references(combined);
-    const missing = new Set(
-      await this.#call("missing", { method: "POST", json: chunks }),
-    );
-    for (const id of chunks) {
-      let data = await this.#store.chunk(id);
-      if (!data || (await digest(data)) !== id) {
-        data = await this.#call("chunks/" + id);
-        if ((await digest(data)) !== id) throw Error("Invalid remote chunk");
-        await decryptContent(this.#session.key, data, this.#context("chunk"));
-        await this.#store.saveChunk(id, data);
-      } else {
-        await decryptContent(this.#session.key, data, this.#context("chunk"));
-      }
-      if (missing.has(id))
-        await this.#call("chunks/" + id, { method: "PUT", binary: data });
+    const missing = await this.#call("missing", { method: "POST", json: chunks });
+    for (const id of chunks) await this.#chunk(id);
+    for (const id of missing) {
+      const data = await this.#store.chunk(id);
+      if (!data || (await digest(data)) !== id)
+        throw Error("Missing or damaged local chunk");
+      await this.#call("chunks/" + id, { method: "PUT", binary: data });
     }
-    if (missing.size || !same(combined, remote)) {
+    if (missing.length || !same(combined, remote)) {
       const sealed = await encryptContent(
         this.#session.key,
         utf8.encode(JSON.stringify(combined)),
@@ -539,10 +560,24 @@ export class Replica {
         throw Error("Invalid revision acknowledgement");
       revision = accepted;
     }
-    await this.#store.save({ base: combined, revision, pending: false });
+    // Writes made during the transfer stay pending for the next round.
+    const pending = await this.#store.lock(async () => {
+      this.#abort.signal.throwIfAborted();
+      const current = await this.#state();
+      const next = merge(current.base, combined);
+      const pending = !same(next, combined);
+      await this.#store.save({
+        ...current,
+        base: next,
+        revision: Math.max(current.revision ?? 0, revision),
+        pending,
+      });
+      return pending;
+    });
     await this.#call("confirm", { method: "POST", json: { revision } });
     this.#abort.signal.throwIfAborted();
-    this.status = "Fully synced at revision " + revision;
+    this.status = pending ? "Pending" : "Fully synced at revision " + revision;
+    if (pending) this.#again = true;
     return revision;
   }
 }

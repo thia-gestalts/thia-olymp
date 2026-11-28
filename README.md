@@ -30,8 +30,8 @@ Pin the [1.1.0 protocol](protocol/1.1.0.md) or install the vendored npm archive 
 # From an adjacent consumer repository, verify the pin, then install it.
 (cd ../thia-olymp && sha256sum -c release/SHA256SUMS)
 mkdir -p vendor
-cp ../thia-olymp/release/thia-olymp-1.1.0.tgz vendor/
-npm install --save-exact ./vendor/thia-olymp-1.1.0.tgz
+cp ../thia-olymp/release/thia-olymp-1.1.1.tgz vendor/
+npm install --save-exact ./vendor/thia-olymp-1.1.1.tgz
 ```
 
 Use a current browser with WebCrypto, WebAssembly, IndexedDB, Web Locks and the Uint8Array base64/hex methods. Serve the WASM beside its generated JS, or pass WASM bytes via the optional `wasm` sign-in field. A browser example:
