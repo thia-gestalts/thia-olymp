@@ -53,7 +53,11 @@ cat >"$caddyfile" <<CADDY
 $domain {
     reverse_proxy 127.0.0.1:8787
 }
+
+# Sites of other services on this VPS, e.g. thia-interaktiv.
+import /etc/caddy/conf.d/*.caddy
 CADDY
+install -d -m 0755 /etc/caddy/conf.d
 caddy validate --adapter caddyfile --config "$caddyfile"
 install -m 0644 "$caddyfile" /etc/caddy/Caddyfile
 systemctl enable --now caddy

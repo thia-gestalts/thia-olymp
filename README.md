@@ -20,7 +20,7 @@ Signup is closed by default and returns 403 "Signups are closed". Set `OLYMP_SIG
 
 For deployment, `cargo build --locked --release --bin olymp` produces a standalone executable with embedded browser assets. Run a single service against a private persistent data directory. Terminate HTTPS at a reverse proxy. Back up the SQLite database using a consistent SQLite backup and preserve the matching `opaque-setup-v1` file. For a browser app on another origin, proxy its `/v1/` path to the service with the path preserved. For example, Vite's `server.proxy` can map `"/v1"` to `"http://127.0.0.1:8787"`.
 
-On a dedicated Ubuntu 24.04 VPS, run `sudo bash deploy/ubuntu.sh gestalter.koljasam.com` from the checkout. The script builds Olymp, installs its systemd unit, and replaces `/etc/caddy/Caddyfile` with a single-site configuration. Service data lives in `/var/lib/olymp`. Rerun the script from an updated checkout to deploy a new build. Point the domain's A record at the VPS and allow inbound TCP ports 80 and 443 so Caddy can provision HTTPS.
+On a dedicated Ubuntu 24.04 VPS, run `sudo bash deploy/ubuntu.sh gestalter.koljasam.com` from the checkout. The script builds Olymp, installs its systemd unit, and replaces `/etc/caddy/Caddyfile` with its own site plus an import of `/etc/caddy/conf.d/*.caddy`, where other services on the same VPS keep their sites. Thia Interaktiv runs there too. Service data lives in `/var/lib/olymp`. Rerun the script from an updated checkout to deploy a new build. Point the domain's A record at the VPS and allow inbound TCP ports 80 and 443 so Caddy can provision HTTPS.
 
 ## Integrate a client
 
